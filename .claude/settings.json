@@ -21,7 +21,18 @@
       "Bash(wget *)",
       "Read(.env)",
       "Read(.env.*)",
-      "Read(.claude/settings.local.json)"
+      "Read(.claude/settings.local.json)",
+      "Read(node_modules/**)",
+      "Read(**/node_modules/**)",
+      "Read(dist/**)",
+      "Read(build/**)",
+      "Read(.next/**)",
+      "Read(prisma/generated/**)",
+      "Read(coverage/**)",
+      "Read(package-lock.json)",
+      "Read(yarn.lock)",
+      "Read(pnpm-lock.yaml)",
+      "Read(apps/web/src/routeTree.gen.ts)"
     ]
   }
 }
