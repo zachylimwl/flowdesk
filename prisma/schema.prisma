@@ -1,0 +1,484 @@
+// -----------------------------------------------------------------------------
+// Datasource
+// -----------------------------------------------------------------------------
+
+datasource db {
+  provider = "postgresql"
+}
+
+// -----------------------------------------------------------------------------
+// Generator
+// -----------------------------------------------------------------------------
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../apps/api/src/generated/prisma"
+}
+
+// -----------------------------------------------------------------------------
+// Enums
+// -----------------------------------------------------------------------------
+
+enum WorkspaceRole {
+  OWNER
+  ADMIN
+  MEMBER
+  VIEWER
+}
+
+enum ProjectRole {
+  LEAD
+  MEMBER
+  VIEWER
+}
+
+enum TaskStatus {
+  BACKLOG
+  TODO
+  IN_PROGRESS
+  IN_REVIEW
+  DONE
+  CANCELLED
+}
+
+enum TaskPriority {
+  URGENT
+  HIGH
+  MEDIUM
+  LOW
+  NONE
+}
+
+// -----------------------------------------------------------------------------
+// User
+// Global entity — not workspace-scoped.
+// email @unique is declared here but must be converted to a partial unique index
+// (WHERE deleted_at IS NULL) in the raw migration SQL.
+// -----------------------------------------------------------------------------
+
+model User {
+  id              String    @id
+  email           String    @unique
+  passwordHash    String
+  name            String
+  avatarUrl       String?
+  emailVerifiedAt DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  deletedAt       DateTime?
+
+  memberships         WorkspaceMember[]
+  invitationsSent     WorkspaceInvite[]
+  projectsCreated     Project[]
+  projectMemberships  ProjectMember[]
+  tasksCreated        Task[]
+  taskAssignments     TaskAssignee[]    @relation("TaskAssigneeUser")
+  taskAssignmentsMade TaskAssignee[]    @relation("TaskAssigneeAssignedBy")
+  comments            Comment[]
+  attachments         Attachment[]
+  refreshTokens       RefreshToken[]
+  apiTokensCreated    ApiToken[]
+  webhooksCreated     Webhook[]
+  auditLogs           AuditLog[]
+}
+
+// -----------------------------------------------------------------------------
+// Workspace
+// Top-level tenant container. Hard deleted — no deletedAt.
+// All workspace-scoped child records carry a workspaceId FK back to this model.
+// -----------------------------------------------------------------------------
+
+model Workspace {
+  id        String   @id
+  name      String
+  slug      String   @unique
+  logoUrl   String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  members        WorkspaceMember[]
+  invitations    WorkspaceInvite[]
+  projects       Project[]
+  projectMembers ProjectMember[]
+  tasks          Task[]
+  taskAssignees  TaskAssignee[]
+  comments       Comment[]
+  attachments    Attachment[]
+  labels         Label[]
+  taskLabels     TaskLabel[]
+  apiTokens      ApiToken[]
+  webhooks       Webhook[]
+  auditLogs      AuditLog[]
+}
+
+// -----------------------------------------------------------------------------
+// WorkspaceMember
+// Junction: User <-> Workspace. Carries WorkspaceRole.
+// @@unique([workspaceId, userId]) is the covering index hit on every
+// authenticated workspace request.
+// -----------------------------------------------------------------------------
+
+model WorkspaceMember {
+  id          String        @id
+  workspaceId String
+  userId      String
+  role        WorkspaceRole
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@unique([workspaceId, userId])
+  @@index([userId])
+}
+
+// -----------------------------------------------------------------------------
+// WorkspaceInvite
+// Pending invitation for an email address to join a workspace.
+// -----------------------------------------------------------------------------
+
+model WorkspaceInvite {
+  id          String        @id
+  workspaceId String
+  email       String
+  role        WorkspaceRole
+  token       String        @unique
+  invitedById String
+  expiresAt   DateTime
+  acceptedAt  DateTime?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  invitedBy User      @relation(fields: [invitedById], references: [id], onDelete: Restrict)
+
+  @@index([workspaceId, email])
+  @@index([expiresAt])
+}
+
+// -----------------------------------------------------------------------------
+// Project
+// Workspace-scoped. Soft deleted.
+// @@unique([workspaceId, slug]) is declared here but MUST be replaced in the
+// raw migration SQL with a partial unique index (WHERE deleted_at IS NULL) so
+// that soft-deleted projects do not block slug reuse.
+// -----------------------------------------------------------------------------
+
+model Project {
+  id          String    @id
+  workspaceId String
+  name        String
+  slug        String
+  description String?
+  createdById String
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  workspace Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdBy User          @relation(fields: [createdById], references: [id], onDelete: Restrict)
+  members   ProjectMember[]
+  tasks     Task[]
+
+  @@unique([workspaceId, slug])
+  @@index([workspaceId, deletedAt])
+}
+
+// -----------------------------------------------------------------------------
+// ProjectMember
+// Junction: User <-> Project. Carries ProjectRole.
+// workspaceId is denormalised so every query can filter by tenant without
+// joining back to Project.
+// -----------------------------------------------------------------------------
+
+model ProjectMember {
+  id          String      @id
+  projectId   String
+  userId      String
+  workspaceId String
+  role        ProjectRole
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  project   Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Restrict)
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, userId])
+  @@index([workspaceId, userId])
+}
+
+// -----------------------------------------------------------------------------
+// Task
+// Workspace-scoped. Soft deleted. Supports sub-tasks via self-reference
+// (max depth 1, enforced at the service layer).
+// position uses fractional indexing for drag-and-drop ordering.
+// -----------------------------------------------------------------------------
+
+model Task {
+  id          String       @id
+  workspaceId String
+  projectId   String
+  parentId    String?
+  title       String
+  description String?
+  status      TaskStatus   @default(BACKLOG)
+  priority    TaskPriority @default(NONE)
+  position    Float
+  dueDate     DateTime?
+  createdById String
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  deletedAt   DateTime?
+
+  workspace   Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  project     Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  parent      Task?        @relation("TaskSubtasks", fields: [parentId], references: [id], onDelete: SetNull)
+  subtasks    Task[]       @relation("TaskSubtasks")
+  createdBy   User         @relation(fields: [createdById], references: [id], onDelete: Restrict)
+  assignees   TaskAssignee[]
+  comments    Comment[]
+  attachments Attachment[]
+  labels      TaskLabel[]
+
+  @@index([projectId])
+  @@index([status])
+  @@index([workspaceId, status])
+  @@index([workspaceId, projectId, deletedAt])
+  @@index([workspaceId, projectId, status])
+  @@index([workspaceId, projectId, position])
+  @@index([parentId])
+}
+
+// -----------------------------------------------------------------------------
+// TaskAssignee
+// Junction: User <-> Task. Records who is assigned and who made the assignment.
+// Two User relations require named @relation directives.
+// workspaceId is denormalised for the "My Tasks" query pattern.
+// -----------------------------------------------------------------------------
+
+model TaskAssignee {
+  id           String   @id
+  taskId       String
+  userId       String
+  workspaceId  String
+  assignedById String
+  createdAt    DateTime @default(now())
+
+  task       Task      @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user       User      @relation("TaskAssigneeUser", fields: [userId], references: [id], onDelete: Cascade)
+  workspace  Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  assignedBy User      @relation("TaskAssigneeAssignedBy", fields: [assignedById], references: [id], onDelete: Restrict)
+
+  @@unique([taskId, userId])
+  @@index([workspaceId, userId])
+}
+
+// -----------------------------------------------------------------------------
+// Comment
+// Workspace-scoped. Soft deleted.
+// Deleted comments may display a placeholder in the UI rather than disappearing.
+// -----------------------------------------------------------------------------
+
+model Comment {
+  id          String    @id
+  workspaceId String
+  taskId      String
+  authorId    String
+  body        String
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  workspace   Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  task        Task         @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  author      User         @relation(fields: [authorId], references: [id], onDelete: Restrict)
+  attachments Attachment[]
+
+  @@index([taskId])
+  @@index([workspaceId, taskId, deletedAt])
+}
+
+// -----------------------------------------------------------------------------
+// Attachment
+// Workspace-scoped. Soft deleted. Belongs to either a Task or a Comment —
+// never both and never neither. The mutual exclusivity is enforced by a
+// CHECK constraint added in raw migration SQL:
+//   CHECK (
+//     (task_id IS NOT NULL AND comment_id IS NULL) OR
+//     (task_id IS NULL AND comment_id IS NOT NULL)
+//   )
+// Both FK relations use onDelete: Cascade so the attachment is removed when
+// its owning record is deleted, whichever side that is.
+// -----------------------------------------------------------------------------
+
+model Attachment {
+  id           String    @id
+  workspaceId  String
+  taskId       String?
+  commentId    String?
+  uploadedById String
+  filename     String
+  mimeType     String
+  size         Int
+  url          String
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  deletedAt    DateTime?
+
+  workspace  Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  task       Task?     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  comment    Comment?  @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  uploadedBy User      @relation(fields: [uploadedById], references: [id], onDelete: Restrict)
+
+  @@index([taskId])
+  @@index([workspaceId, taskId])
+  @@index([workspaceId, commentId])
+}
+
+// -----------------------------------------------------------------------------
+// Label
+// Workspace-scoped. Soft deleted. Reusable tag applied to tasks via TaskLabel.
+// @@unique([workspaceId, name]) MUST be converted in the raw migration SQL to a
+// partial unique index (WHERE deleted_at IS NULL).
+// -----------------------------------------------------------------------------
+
+model Label {
+  id          String    @id
+  workspaceId String
+  name        String
+  color       String
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  workspace  Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  taskLabels TaskLabel[]
+
+  @@unique([workspaceId, name])
+  @@index([workspaceId, deletedAt])
+}
+
+// -----------------------------------------------------------------------------
+// TaskLabel
+// Junction: Task <-> Label.
+// workspaceId is denormalised for the label-filter query pattern.
+// -----------------------------------------------------------------------------
+
+model TaskLabel {
+  id          String   @id
+  taskId      String
+  labelId     String
+  workspaceId String
+  createdAt   DateTime @default(now())
+
+  task      Task      @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  label     Label     @relation(fields: [labelId], references: [id], onDelete: Cascade)
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, labelId])
+  @@index([workspaceId, labelId])
+}
+
+// -----------------------------------------------------------------------------
+// RefreshToken
+// Not workspace-scoped. Persists refresh token hashes for durability and
+// revocation auditing. Redis is the authoritative fast-lookup store; this table
+// survives Redis restarts and enables logout-all by userId.
+// -----------------------------------------------------------------------------
+
+model RefreshToken {
+  id        String    @id
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+// -----------------------------------------------------------------------------
+// ApiToken
+// Workspace-scoped. Soft deleted. Used by external integrations.
+// tokenHash stores the SHA-256 hash; the plaintext is shown once at creation.
+// -----------------------------------------------------------------------------
+
+model ApiToken {
+  id          String    @id
+  workspaceId String
+  name        String
+  tokenHash   String    @unique
+  createdById String
+  lastUsedAt  DateTime?
+  expiresAt   DateTime?
+  revokedAt   DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdBy User      @relation(fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@index([workspaceId, deletedAt])
+}
+
+// -----------------------------------------------------------------------------
+// Webhook
+// Workspace-scoped. Soft deleted. The platform POSTs to url for subscribed
+// events. secret is the HMAC-SHA256 signing key — must be stored encrypted.
+// events is a text[] column; values are dot-namespaced event names.
+// -----------------------------------------------------------------------------
+
+model Webhook {
+  id              String    @id
+  workspaceId     String
+  name            String
+  url             String
+  secret          String
+  events          String[]
+  isActive        Boolean   @default(true)
+  createdById     String
+  lastTriggeredAt DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  deletedAt       DateTime?
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdBy User      @relation(fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@index([workspaceId, isActive, deletedAt])
+}
+
+// -----------------------------------------------------------------------------
+// AuditLog
+// Workspace-scoped. Append-only — no updatedAt, no deletedAt.
+// onDelete: Restrict on the workspace relation means a workspace cannot be
+// hard-deleted while audit records exist; archive or purge logs first.
+// actorId is nullable (system-generated events have no actor); onDelete: SetNull
+// preserves the audit record when the referenced user is deleted.
+// -----------------------------------------------------------------------------
+
+model AuditLog {
+  id           String   @id
+  workspaceId  String
+  actorId      String?
+  action       String
+  resourceType String
+  resourceId   String
+  metadata     Json
+  createdAt    DateTime @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  actor     User?     @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([resourceType, resourceId])
+  @@index([workspaceId, actorId])
+  @@index([workspaceId, resourceType, resourceId])
+  @@index([workspaceId, createdAt])
+}

@@ -10,7 +10,7 @@ for the Claude Code Mastery course. We are building FlowDesk from scratch to pro
 | Layer | Technology |
 |---|---|
 | Frontend | React 19 + TypeScript + Vite + TanStack Router + TanStack Query + TanStack Form + Material UI v6 |
-| Backend | Node.js + Fastify v4 + Prisma v5 + PostgreSQL 15 + Redis 7 |
+| Backend | Node.js + Fastify v4 + Prisma v7 + PostgreSQL 15 + Redis 7 |
 | Auth | JWT (access tokens, 15 min) + refresh tokens (7 days) + Redis session store |
 | Testing | Vitest + Playwright + Testing Library |
 | Observability | Pino structured logging + OpenTelemetry |
