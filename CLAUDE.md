@@ -46,6 +46,71 @@ flowdesk/
 │   └── skills/                 # Reusable Claude Code skills
 └── docker-compose.yml          # Local development services
 
+## Architectural Decisions
+
+### 1. Multi-Tenancy Strategy
+
+Shared database, shared schema. Every table that belongs to a workspace has a `workspaceId` column. Workspace isolation is enforced at the application layer — specifically at the repository layer — not at the database layer.
+
+- `workspaceId` is always sourced from the authenticated session. It is never taken from the request body or a URL parameter supplied by the client.
+- Every Prisma query that touches workspace-scoped data must include a `workspaceId` filter. A query that returns workspace data without this filter is a multi-tenancy breach, not a bug.
+- Every workspace-scoped table must have a composite index with `workspaceId` as the leading column.
+
+### 2. API Design Approach
+
+REST-first. The backend exposes a versioned REST API mounted at `/api/v1/`. OpenAPI is the authoritative contract, defined in `apps/api/src/openapi.ts` and kept in sync with route implementations.
+
+- WebSocket endpoints are prefixed `/ws/` and added only for features that require real-time server push (e.g. task status updates, presence). They are not a general-purpose alternative to REST.
+- All REST responses follow the existing error shape: `{ error: string, code?: string }`.
+
+### 3. Authentication Pattern
+
+JWT access tokens (15-minute expiry) combined with refresh tokens (7-day expiry, stored in Redis). Server sessions are stateless — the access token carries all claims needed to authorise a request.
+
+- Token refresh is handled transparently by the frontend API client. Components and query hooks are unaware of the refresh cycle.
+- Refresh tokens are stored in Redis and can be individually revoked (e.g. on logout or member removal).
+
+### 4. Frontend Data Fetching
+
+TanStack Query is the single source of truth for all server state.
+
+- No direct `fetch()` calls in components. All server interactions go through the centralised API client in `apps/web/src/lib/api.ts`, invoked from TanStack Query hooks.
+- Mutations use TanStack Query's `useMutation`. Interactive elements (task completion, role changes) use optimistic updates to keep the UI responsive.
+- Query keys are defined centrally in `apps/web/src/lib/queryKeys.ts` — no inline string keys.
+
+### 5. Data Model — Tenant Isolation Column
+
+Every table that stores workspace-scoped data carries a `workspaceId` foreign key column. This is the physical enforcement point for the shared-schema multi-tenancy strategy in Decision 1.
+
+- `workspaceId` is the leading column on every composite index for workspace-scoped tables.
+- Prisma's `findUnique` must not be used on workspace-scoped records — use `findFirst({ where: { id, workspaceId } })` so the tenant filter is never bypassed.
+
+### 6. Data Model — User and Membership
+
+`User` is workspace-independent. A user's role in a workspace is stored in a `WorkspaceMember` join table, not on the `User` record.
+
+- `WorkspaceMember` has a compound unique constraint on `(workspaceId, userId)`.
+- A covering index on `(workspaceId, userId)` is required — this index is hit on every authenticated workspace request.
+- Role is never encoded in the JWT. A `verifyWorkspaceMember` preHandler resolves the caller's current role from `WorkspaceMember` on every workspace-scoped request and decorates `request.member`.
+
+### 7. Data Model — Soft Delete
+
+Workspace-scoped resource tables (projects, tasks, and future entities) use soft delete via a `deletedAt` nullable timestamp column. All queries against these tables must include a `where: { deletedAt: null }` filter unless explicitly querying deleted records.
+
+- `Workspace` itself is **hard deleted** — the record is removed, cascading to all child records including `WorkspaceMember`, `WorkspaceInvitation`, and all workspace-scoped resources. Soft delete does not apply to the `Workspace` model.
+- Unique-constrained columns on soft-deletable tables must use partial unique indexes (`WHERE deleted_at IS NULL`) defined in raw SQL migrations, not in the Prisma schema DSL.
+- A Prisma Client Extension must enforce the `deletedAt: null` filter globally so it cannot be accidentally omitted at the repository layer.
+
+### 8. Data Model — Primary Keys
+
+All tables use UUID v7 primary keys generated in application code (Node.js `uuidv7` package). UUID v7 is time-ordered, which preserves B-tree index locality on insert and avoids the page-split fragmentation of random UUID v4.
+
+- IDs are generated in the application layer (not by the database) using the `uuidv7` package, then passed into the Prisma `create` call. Prisma models declare `id String @id` with no `@default`.
+- Foreign keys referencing these IDs are typed `String` in Prisma.
+- No auto-increment integer IDs anywhere. UUID v7 is the single ID strategy across all tables.
+
+---
+
 ## Coding Conventions
 
 ### TypeScript
