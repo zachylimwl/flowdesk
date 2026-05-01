@@ -18,35 +18,34 @@ for the Claude Code Mastery course. We are building FlowDesk from scratch to pro
 
 ## Repository Structure
 
+> For the full annotated structure — per-directory descriptions, naming conventions, import rules,
+> and a file-placement decision table — see `.claude/specs/monorepo-structure.md`.
+
+```
 flowdesk/
 ├── apps/
 │   ├── web/                    # React 19 frontend (Vite)
 │   │   └── src/
-│   │       ├── routes/         # TanStack Router route files
-│   │       ├── components/     # Shared UI components (MUI-based)
-│   │       ├── hooks/          # Custom React hooks
-│   │       ├── lib/            # Utilities, API client, query keys
-│   │       └── types/          # Shared frontend TypeScript types
 │   └── api/                    # Fastify backend
 │       └── src/
-│           ├── routes/         # Fastify route handlers
-│           ├── services/       # Business logic layer
-│           ├── repositories/   # Data access layer (Prisma)
-│           ├── middleware/      # Auth, error handling, logging
-│           ├── lib/            # Shared utilities (Redis, JWT, etc.)
-│           └── types/          # Shared backend TypeScript types
 ├── packages/
-│   └── shared/                 # Types and utilities shared between apps
-├── prisma/
-│   ├── schema.prisma           # Database schema
-│   └── migrations/             # Migration history
+│   └── shared/                 # TypeScript types and utilities shared between apps
+├── prisma/                     # Prisma schema and migration history
+├── docs/
+│   └── adr/                    # Architecture Decision Records
 ├── .claude/
 │   ├── settings.json           # Claude Code configuration (committed)
 │   ├── settings.local.json     # Personal overrides (gitignored)
-│   └── skills/                 # Reusable Claude Code skills
-└── docker-compose.yml          # Local development services
+│   └── specs/                  # Feature and structure specifications
+├── docker-compose.yml          # PostgreSQL + Redis for local development
+├── .env.example
+├── package.json                # pnpm workspace root
+└── pnpm-workspace.yaml
+```
 
 ## Architectural Decisions
+
+Before writing any new ADR, read `docs/adr/ADR-template.md` and follow its structure exactly.
 
 ### 1. Multi-Tenancy Strategy
 
@@ -156,3 +155,14 @@ All tables use UUID v7 primary keys generated in application code (Node.js `uuid
 - Never skip input validation on API endpoints
 - Never trust client-supplied `workspaceId` — always derive from the authenticated session
 - All database-mutating operations touching multiple tables must be wrapped in transactions
+
+## Claude Code Configuration
+
+Everything inside `.claude/` is committed to git and treated as team configuration, with one exception: `settings.local.json` is gitignored because it holds personal overrides (model preference, personal allow rules, editor integration settings) that should not be imposed on other developers.
+
+Committed `.claude/` contents:
+- `settings.json` — shared allow/deny rules and project-level Claude Code configuration
+- `specs/` — feature and structure specifications loaded as context
+- `skills/` — reusable slash commands available to the whole team
+
+New files added to `.claude/` — specs, skills, hooks, or commands — go through PR review. They are team configuration, not personal tooling.
