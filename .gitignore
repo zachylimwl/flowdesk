@@ -1,2 +1,15 @@
+node_modules/
+dist/
+build/
+.next/
+*.local
+.env
+.env.*
+!.env.example
+!.env.test
+apps/api/src/generated/
+coverage/
+.turbo/
+*.tsbuildinfo
+.DS_Store
 .claude/settings.local.json
-.env.local

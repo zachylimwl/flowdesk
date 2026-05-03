@@ -32,7 +32,15 @@
       "Read(package-lock.json)",
       "Read(yarn.lock)",
       "Read(pnpm-lock.yaml)",
-      "Read(apps/web/src/routeTree.gen.ts)"
+      "Read(apps/web/src/routeTree.gen.ts)",
+      "Read(apps/api/src/generated/**)",
+      "Read(apps/web/dist/**)",
+      "Read(apps/api/dist/**)",
+      "Read(packages/shared/dist/**)",
+      "Read(apps/web/coverage/**)",
+      "Read(apps/api/coverage/**)",
+      "Read(**/node_modules/**)",
+      "Read(**/*.tsbuildinfo)"
     ]
   }
 }

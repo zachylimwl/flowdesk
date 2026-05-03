@@ -1,0 +1,7 @@
+node_modules
+dist
+build
+.next
+apps/api/src/generated
+pnpm-lock.yaml
+*.lock
