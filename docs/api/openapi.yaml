@@ -27,13 +27,90 @@ tags:
     description: Task CRUD, assignment, status transitions, and sub-tasks.
   - name: Comments
     description: Task comments.
-  - name: Attachments
-    description: File attachments on tasks and comments.
-  - name: Integrations
-    description: API tokens and outbound webhooks.
-
+  - name: Labels
+    description: Workspace-scoped label management.
 security:
   - BearerAuth: []
+
+x-deferred-to:
+  - feature: email-verification
+    reason: Not required for Phase 3 launch. emailVerifiedAt field exists on the User model.
+    model: User.emailVerifiedAt
+    endpoints:
+      - "POST /auth/verify-email"
+
+  - feature: password-reset
+    reason: Not required for Phase 3 launch.
+    model: User.passwordHash
+    endpoints:
+      - "POST /auth/forgot-password"
+      - "POST /auth/reset-password"
+
+  - feature: account-deletion
+    reason: GDPR soft-delete for users is deferred until compliance requirements are confirmed.
+    model: User.deletedAt
+    endpoints:
+      - "DELETE /auth/me"
+
+  - feature: workspace-invitation-accept
+    reason: >
+      Invite creation (POST .../invite) ships in Phase 3. The email-link accept flow
+      (token lookup, acceptance, WorkspaceMember creation) is deferred. Admin-side list
+      and cancel endpoints are deferred alongside it as they are only useful once
+      invitees can act on invitations.
+    model: WorkspaceInvite
+    endpoints:
+      - "GET /invitations/{token}"
+      - "POST /invitations/{token}/accept"
+      - "GET /workspaces/{workspaceId}/invitations"
+      - "DELETE /workspaces/{workspaceId}/invitations/{invitationId}"
+
+  - feature: file-attachments
+    reason: >
+      Attachment model is in the schema and attachmentCount surfaces in TaskDetail.
+      Full upload/storage integration (pre-signed URLs, CDN wiring) is deferred.
+    model: Attachment
+    endpoints:
+      - "GET /workspaces/{workspaceId}/projects/{projectId}/tasks/{taskId}/attachments"
+      - "POST /workspaces/{workspaceId}/projects/{projectId}/tasks/{taskId}/attachments"
+      - "DELETE /workspaces/{workspaceId}/projects/{projectId}/tasks/{taskId}/attachments/{attachmentId}"
+      - "POST /workspaces/{workspaceId}/projects/{projectId}/tasks/{taskId}/comments/{commentId}/attachments"
+      - "DELETE /workspaces/{workspaceId}/projects/{projectId}/tasks/{taskId}/comments/{commentId}/attachments/{attachmentId}"
+
+  - feature: api-tokens
+    reason: External integration support. ApiToken model is in the schema.
+    model: ApiToken
+    endpoints:
+      - "GET /workspaces/{workspaceId}/tokens"
+      - "POST /workspaces/{workspaceId}/tokens"
+      - "DELETE /workspaces/{workspaceId}/tokens/{tokenId}"
+
+  - feature: webhooks
+    reason: Outbound event delivery. Webhook model is in the schema.
+    model: Webhook
+    endpoints:
+      - "GET /workspaces/{workspaceId}/webhooks"
+      - "POST /workspaces/{workspaceId}/webhooks"
+      - "GET /workspaces/{workspaceId}/webhooks/{webhookId}"
+      - "PATCH /workspaces/{workspaceId}/webhooks/{webhookId}"
+      - "DELETE /workspaces/{workspaceId}/webhooks/{webhookId}"
+
+  - feature: audit-logs
+    reason: >
+      AuditLog model is in the schema (append-only). Read endpoint deferred until
+      access control and retention policy are defined.
+    model: AuditLog
+    endpoints:
+      - "GET /workspaces/{workspaceId}/audit-logs"
+
+  - feature: workspace-task-list
+    reason: >
+      The Task model denormalises workspaceId explicitly for this query pattern ("My Tasks").
+      Deferred until the frontend requires a cross-project task view; per-project listing
+      (GET /workspaces/{workspaceId}/projects/{projectId}/tasks) covers Phase 3 needs.
+    model: Task.workspaceId
+    endpoints:
+      - "GET /workspaces/{workspaceId}/tasks"
 
 # ---------------------------------------------------------------------------
 # Components
@@ -51,12 +128,6 @@ components:
       scheme: bearer
       bearerFormat: JWT
       description: JWT access token. Expires after 15 minutes.
-    ApiKeyAuth:
-      type: apiKey
-      in: header
-      name: X-Api-Token
-      description: Long-lived workspace API token for external integrations.
-
   # -------------------------------------------------------------------------
   # Schemas
   # -------------------------------------------------------------------------
@@ -161,7 +232,7 @@ components:
 
     UserProfile:
       type: object
-      required: [id, email, name, createdAt]
+      required: [id, email, name, createdAt, updatedAt]
       properties:
         id:
           type: string
@@ -183,6 +254,10 @@ components:
           type: string
           format: date-time
           example: "2025-01-15T10:00:00Z"
+        updatedAt:
+          type: string
+          format: date-time
+          example: "2025-03-10T14:22:00Z"
 
     # -----------------------------------------------------------------------
     # Workspaces
@@ -230,7 +305,7 @@ components:
 
     WorkspaceMember:
       type: object
-      required: [id, userId, user, role, joinedAt]
+      required: [id, userId, user, role, createdAt, updatedAt]
       properties:
         id:
           type: string
@@ -244,10 +319,37 @@ components:
           $ref: "#/components/schemas/UserProfile"
         role:
           $ref: "#/components/schemas/WorkspaceRole"
-        joinedAt:
+        createdAt:
           type: string
           format: date-time
           example: "2025-02-01T09:00:00Z"
+        updatedAt:
+          type: string
+          format: date-time
+          example: "2025-04-15T11:30:00Z"
+
+    WorkspaceInvitation:
+      type: object
+      required: [id, email, role, expiresAt, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: 01906b5e-3a1f-7000-8c6b-d7e1f2a3b4c5
+        email:
+          type: string
+          format: email
+          example: bob@example.com
+        role:
+          $ref: "#/components/schemas/WorkspaceRole"
+        expiresAt:
+          type: string
+          format: date-time
+          example: "2025-05-08T10:00:00Z"
+        createdAt:
+          type: string
+          format: date-time
+          example: "2025-05-01T10:00:00Z"
 
     # -----------------------------------------------------------------------
     # Projects
@@ -305,7 +407,7 @@ components:
 
     ProjectMember:
       type: object
-      required: [id, userId, user, role]
+      required: [id, userId, user, role, createdAt, updatedAt]
       properties:
         id:
           type: string
@@ -319,6 +421,14 @@ components:
           $ref: "#/components/schemas/UserProfile"
         role:
           $ref: "#/components/schemas/ProjectRole"
+        createdAt:
+          type: string
+          format: date-time
+          example: "2025-03-05T10:00:00Z"
+        updatedAt:
+          type: string
+          format: date-time
+          example: "2025-05-01T09:45:00Z"
 
     # -----------------------------------------------------------------------
     # Tasks
@@ -326,7 +436,7 @@ components:
 
     LabelSummary:
       type: object
-      required: [id, name, color]
+      required: [id, name, color, createdAt, updatedAt]
       properties:
         id:
           type: string
@@ -339,6 +449,14 @@ components:
           type: string
           description: Hex colour code.
           example: "#EF4444"
+        createdAt:
+          type: string
+          format: date-time
+          example: "2025-03-01T09:00:00Z"
+        updatedAt:
+          type: string
+          format: date-time
+          example: "2025-03-01T09:00:00Z"
 
     TaskSummary:
       type: object
@@ -425,7 +543,7 @@ components:
 
     CommentSummary:
       type: object
-      required: [id, taskId, author, body, createdAt]
+      required: [id, taskId, author, body, createdAt, updatedAt]
       properties:
         id:
           type: string
@@ -441,48 +559,14 @@ components:
           type: string
           description: Comment text; Markdown supported.
           example: "Reproduced on Chrome 124. Root cause is the redirect middleware."
-        editedAt:
-          type: string
-          format: date-time
-          nullable: true
-          description: Set when the comment body has been updated after creation.
-          example: null
         createdAt:
           type: string
           format: date-time
           example: "2025-05-01T11:00:00Z"
-
-    # -----------------------------------------------------------------------
-    # Attachments
-    # -----------------------------------------------------------------------
-
-    AttachmentSummary:
-      type: object
-      required: [id, filename, mimeType, sizeBytes, storageUrl, createdAt]
-      properties:
-        id:
-          type: string
-          format: uuid
-          example: 01906b5e-3a1f-7000-8c6b-d7e1f2a3b4c5
-        filename:
-          type: string
-          example: screenshot.png
-        mimeType:
-          type: string
-          example: image/png
-        sizeBytes:
-          type: integer
-          description: File size in bytes.
-          example: 204800
-        storageUrl:
-          type: string
-          format: uri
-          description: CDN or object-storage URL. May be a pre-signed URL with a short TTL.
-          example: https://cdn.flowdesk.app/attachments/01906b5e-screenshot.png
-        createdAt:
+        updatedAt:
           type: string
           format: date-time
-          example: "2025-05-02T14:30:00Z"
+          example: "2025-05-01T11:00:00Z"
 
   # -------------------------------------------------------------------------
   # Reusable responses
@@ -755,6 +839,100 @@ paths:
         "500":
           $ref: "#/components/responses/InternalServerError"
 
+    patch:
+      operationId: updateCurrentUser
+      tags: [Authentication]
+      summary: Update the authenticated user's profile. Partial update — provide only the fields to change.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              minProperties: 1
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                  maxLength: 100
+                  example: Alice Johnson
+                avatarUrl:
+                  type: string
+                  format: uri
+                  nullable: true
+                  example: https://cdn.flowdesk.app/avatars/alice-new.png
+      responses:
+        "200":
+          description: Profile updated successfully.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [user]
+                properties:
+                  user:
+                    $ref: "#/components/schemas/UserProfile"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /auth/change-password:
+    post:
+      operationId: changePassword
+      tags: [Authentication]
+      summary: Change the authenticated user's password.
+      description: |
+        Requires the caller's current password for verification. On success, all
+        existing refresh tokens for the user are revoked and a new token pair is issued,
+        equivalent to a fresh login.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [currentPassword, newPassword]
+              properties:
+                currentPassword:
+                  type: string
+                  format: password
+                  description: The user's current password for verification.
+                  example: "S3cureP@ssword!"
+                newPassword:
+                  type: string
+                  format: password
+                  minLength: 8
+                  description: The new password to set.
+                  example: "N3wP@ssword!"
+      responses:
+        "200":
+          description: Password changed. All prior sessions revoked; new tokens issued.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [tokens]
+                properties:
+                  tokens:
+                    $ref: "#/components/schemas/AuthTokens"
+        "401":
+          description: Current password is incorrect or the access token is invalid.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error:
+                  code: INVALID_CURRENT_PASSWORD
+                  message: The current password you entered is incorrect.
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
   # -------------------------------------------------------------------------
   # Workspaces
   # -------------------------------------------------------------------------
@@ -819,10 +997,10 @@ paths:
                   example: Acme Corp
                 slug:
                   type: string
-                  pattern: "^[a-z0-9-]+$"
-                  minLength: 1
-                  maxLength: 63
-                  description: URL-safe identifier. Globally unique. Immutable after creation.
+                  pattern: "^[a-z0-9][a-z0-9-]{1,48}[a-z0-9]$"
+                  minLength: 3
+                  maxLength: 50
+                  description: URL-safe identifier. Globally unique. Immutable after creation. Lowercase alphanumeric and hyphens only; cannot start or end with a hyphen.
                   example: acme-corp
       responses:
         "201":
@@ -879,8 +1057,6 @@ paths:
                     $ref: "#/components/schemas/WorkspaceDetail"
         "401":
           $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
         "500":
@@ -889,7 +1065,7 @@ paths:
     patch:
       operationId: updateWorkspace
       tags: [Workspaces]
-      summary: Update workspace name or logo. Requires OWNER or ADMIN role.
+      summary: Update workspace fields. Name and logo require OWNER or ADMIN role; slug requires OWNER role.
       requestBody:
         required: true
         content:
@@ -903,6 +1079,13 @@ paths:
                   minLength: 1
                   maxLength: 100
                   example: Acme Corporation
+                slug:
+                  type: string
+                  pattern: "^[a-z0-9][a-z0-9-]{1,48}[a-z0-9]$"
+                  minLength: 3
+                  maxLength: 50
+                  description: Owner-only. Changing the slug breaks all existing workspace links — no redirect is provided. ADMIN callers supplying this field receive 403.
+                  example: acme-corp-new
                 logoUrl:
                   type: string
                   format: uri
@@ -925,6 +1108,16 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "409":
+          description: The slug is already taken by another workspace.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error:
+                  code: SLUG_ALREADY_TAKEN
+                  message: A workspace with that slug already exists.
         "422":
           $ref: "#/components/responses/UnprocessableEntity"
         "500":
@@ -935,11 +1128,39 @@ paths:
       tags: [Workspaces]
       summary: Hard-delete the workspace and all its data. Requires OWNER role.
       description: |
-        Permanently removes the workspace and cascades to all child records
-        (members, projects, tasks, etc.). This action is irreversible.
+        Permanently removes the workspace in a single transaction: first purges all
+        AuditLog records for the workspace (required by the onDelete: Restrict constraint
+        on the AuditLog → Workspace FK), then hard-deletes the workspace row, cascading
+        to all remaining child records (members, invitations, projects, tasks, etc.).
+        This action is irreversible.
+
+        The request body must include `confirmName` set to the exact current workspace name.
+        Requests with a missing or non-matching `confirmName` are rejected with 400.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [confirmName]
+              properties:
+                confirmName:
+                  type: string
+                  description: Must exactly match the workspace's current `name` as a deletion safeguard.
+                  example: Acme Corp
       responses:
         "204":
           description: Workspace deleted.
+        "400":
+          description: confirmName is absent or does not match the workspace name.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error:
+                  code: CONFIRMATION_MISMATCH
+                  message: The confirmation name does not match the workspace name.
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -970,6 +1191,7 @@ paths:
             type: integer
             default: 1
             minimum: 1
+          description: Page number (1-indexed).
         - name: pageSize
           in: query
           schema:
@@ -977,6 +1199,7 @@ paths:
             default: 20
             minimum: 1
             maximum: 100
+          description: Number of results per page.
         - name: role
           in: query
           schema:
@@ -999,8 +1222,6 @@ paths:
                     $ref: "#/components/schemas/PaginationMeta"
         "401":
           $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
         "500":
@@ -1034,7 +1255,10 @@ paths:
                   example: bob@example.com
                 role:
                   $ref: "#/components/schemas/WorkspaceRole"
-                  description: Role granted to the invitee on acceptance. Defaults to MEMBER.
+                  description: |
+                    Role granted to the invitee on acceptance. Defaults to MEMBER.
+                    OWNER is not a valid value — ownership transfer must go through
+                    PATCH /workspaces/{workspaceId}/members/{userId} for existing members.
       responses:
         "201":
           description: Invitation created and email dispatched.
@@ -1045,23 +1269,7 @@ paths:
                 required: [invite]
                 properties:
                   invite:
-                    type: object
-                    required: [id, email, role, expiresAt]
-                    properties:
-                      id:
-                        type: string
-                        format: uuid
-                        example: 01906b5e-3a1f-7000-8c6b-d7e1f2a3b4c5
-                      email:
-                        type: string
-                        format: email
-                        example: bob@example.com
-                      role:
-                        $ref: "#/components/schemas/WorkspaceRole"
-                      expiresAt:
-                        type: string
-                        format: date-time
-                        example: "2025-05-08T10:00:00Z"
+                    $ref: "#/components/schemas/WorkspaceInvitation"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -1103,7 +1311,12 @@ paths:
     patch:
       operationId: updateWorkspaceMember
       tags: [Workspaces]
-      summary: Change a member's role. Requires OWNER or ADMIN. Cannot demote the OWNER.
+      summary: Change a member's role. Requires OWNER or ADMIN.
+      description: |
+        ADMIN may assign ADMIN, MEMBER, or VIEWER. Only OWNER may assign the OWNER role.
+        Assigning OWNER to another member is an atomic ownership transfer: the caller is
+        demoted to ADMIN and the target member is promoted to OWNER in a single transaction.
+        The OWNER role cannot otherwise be demoted — use this endpoint to transfer ownership first.
       requestBody:
         required: true
         content:
@@ -1195,6 +1408,7 @@ paths:
             type: integer
             default: 1
             minimum: 1
+          description: Page number (1-indexed).
         - name: pageSize
           in: query
           schema:
@@ -1202,6 +1416,7 @@ paths:
             default: 20
             minimum: 1
             maximum: 100
+          description: Number of results per page.
       responses:
         "200":
           description: Paginated list of projects.
@@ -1219,8 +1434,6 @@ paths:
                     $ref: "#/components/schemas/PaginationMeta"
         "401":
           $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
         "500":
@@ -1245,10 +1458,10 @@ paths:
                   example: Website Redesign
                 slug:
                   type: string
-                  pattern: "^[a-z0-9-]+$"
-                  minLength: 1
-                  maxLength: 63
-                  description: URL-safe identifier. Unique within the workspace.
+                  pattern: "^[a-z0-9][a-z0-9-]{1,48}[a-z0-9]$"
+                  minLength: 3
+                  maxLength: 50
+                  description: URL-safe identifier. Unique within the workspace among active projects. Lowercase alphanumeric and hyphens only; cannot start or end with a hyphen.
                   example: website-redesign
                 description:
                   type: string
@@ -1325,8 +1538,6 @@ paths:
                     $ref: "#/components/schemas/ProjectDetail"
         "401":
           $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
         "500":
@@ -1351,9 +1562,9 @@ paths:
                   example: Website Redesign v2
                 slug:
                   type: string
-                  pattern: "^[a-z0-9-]+$"
-                  minLength: 1
-                  maxLength: 63
+                  pattern: "^[a-z0-9][a-z0-9-]{1,48}[a-z0-9]$"
+                  minLength: 3
+                  maxLength: 50
                   example: website-redesign-v2
                 description:
                   type: string
@@ -1411,6 +1622,193 @@ paths:
         "500":
           $ref: "#/components/responses/InternalServerError"
 
+  /workspaces/{workspaceId}/projects/{projectId}/members:
+    parameters:
+      - name: workspaceId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: UUID v7 of the workspace.
+      - name: projectId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: UUID v7 of the project.
+
+    get:
+      operationId: listProjectMembers
+      tags: [Projects]
+      summary: List members of a project. Caller must be a workspace member.
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+            minimum: 1
+          description: Page number (1-indexed).
+        - name: pageSize
+          in: query
+          schema:
+            type: integer
+            default: 20
+            minimum: 1
+            maximum: 100
+          description: Number of results per page.
+      responses:
+        "200":
+          description: Paginated list of project members.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ProjectMember"
+                  meta:
+                    $ref: "#/components/schemas/PaginationMeta"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+    post:
+      operationId: addProjectMember
+      tags: [Projects]
+      summary: Add a workspace member to a project. Requires OWNER, ADMIN, or project LEAD role.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [userId]
+              properties:
+                userId:
+                  type: string
+                  format: uuid
+                  description: UUID v7 of the workspace member to add to the project.
+                  example: 01906b5e-3a1f-7000-8c6b-d7e1f2a3b4c6
+                role:
+                  $ref: "#/components/schemas/ProjectRole"
+                  description: Role for the new project member. Defaults to MEMBER.
+      responses:
+        "201":
+          description: Member added to project successfully.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [member]
+                properties:
+                  member:
+                    $ref: "#/components/schemas/ProjectMember"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: The user is already a member of this project.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error:
+                  code: PROJECT_MEMBER_ALREADY_EXISTS
+                  message: This user is already a member of the project.
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /workspaces/{workspaceId}/projects/{projectId}/members/{userId}:
+    parameters:
+      - name: workspaceId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: UUID v7 of the workspace.
+      - name: projectId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: UUID v7 of the project.
+      - name: userId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: UUID v7 of the project member to act on.
+
+    patch:
+      operationId: updateProjectMember
+      tags: [Projects]
+      summary: Update a project member's role. Requires OWNER, ADMIN, or project LEAD role.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [role]
+              properties:
+                role:
+                  $ref: "#/components/schemas/ProjectRole"
+      responses:
+        "200":
+          description: Project member role updated successfully.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [member]
+                properties:
+                  member:
+                    $ref: "#/components/schemas/ProjectMember"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+    delete:
+      operationId: removeProjectMember
+      tags: [Projects]
+      summary: Remove a member from a project. Requires OWNER, ADMIN, or project LEAD role.
+      responses:
+        "204":
+          description: Member removed from project successfully.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
   # -------------------------------------------------------------------------
   # Tasks
   # -------------------------------------------------------------------------
@@ -1443,6 +1841,7 @@ paths:
             type: integer
             default: 1
             minimum: 1
+          description: Page number (1-indexed).
         - name: pageSize
           in: query
           schema:
@@ -1450,6 +1849,7 @@ paths:
             default: 20
             minimum: 1
             maximum: 100
+          description: Number of results per page.
         - name: status
           in: query
           schema:
@@ -1504,8 +1904,6 @@ paths:
                     $ref: "#/components/schemas/PaginationMeta"
         "401":
           $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
         "500":
@@ -1611,7 +2009,7 @@ paths:
     get:
       operationId: getTask
       tags: [Tasks]
-      summary: Get full task details including sub-tasks, assignees, and labels.
+      summary: Get full task details including sub-tasks, assignees, and labels. Caller must be a workspace member.
       responses:
         "200":
           description: Task details.
@@ -1625,8 +2023,6 @@ paths:
                     $ref: "#/components/schemas/TaskDetail"
         "401":
           $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
         "500":
@@ -1636,6 +2032,9 @@ paths:
       operationId: updateTask
       tags: [Tasks]
       summary: Update task fields. Accepts any subset of task fields plus position for drag-and-drop reordering.
+      description: |
+        Caller must hold at least workspace MEMBER role (or project LEAD, ADMIN, or OWNER).
+        Workspace VIEWERs are not permitted to update tasks.
       requestBody:
         required: true
         content:
@@ -1707,7 +2106,7 @@ paths:
     delete:
       operationId: deleteTask
       tags: [Tasks]
-      summary: Soft-delete a task. Sub-tasks are soft-deleted in the same transaction.
+      summary: Soft-delete a task and all its sub-tasks in a single transaction. Requires workspace OWNER, ADMIN, or project LEAD role.
       responses:
         "204":
           description: Task soft-deleted successfully.
@@ -1747,7 +2146,7 @@ paths:
     post:
       operationId: addTaskAssignee
       tags: [Tasks]
-      summary: Assign a workspace member to a task.
+      summary: Assign a workspace member to a task. Caller must be a workspace member with at least MEMBER role.
       requestBody:
         required: true
         content:
@@ -1827,7 +2226,7 @@ paths:
     delete:
       operationId: removeTaskAssignee
       tags: [Tasks]
-      summary: Remove a user from a task's assignee list.
+      summary: Remove a user from a task's assignee list. Caller may remove themselves; removing others requires at least workspace MEMBER role.
       responses:
         "204":
           description: Assignee removed successfully.
@@ -1844,7 +2243,7 @@ paths:
   # Comments
   # -------------------------------------------------------------------------
 
-  /workspaces/{workspaceId}/tasks/{taskId}/comments:
+  /workspaces/{workspaceId}/projects/{projectId}/tasks/{taskId}/comments:
     parameters:
       - name: workspaceId
         in: path
@@ -1853,18 +2252,25 @@ paths:
           type: string
           format: uuid
         description: UUID v7 of the workspace.
+      - name: projectId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: UUID v7 of the project.
       - name: taskId
         in: path
         required: true
         schema:
           type: string
           format: uuid
-        description: UUID v7 of the task.
+        description: UUID v7 of the task. Must belong to the specified project and workspace.
 
     get:
       operationId: listComments
       tags: [Comments]
-      summary: List active comments on a task in chronological order.
+      summary: List active comments on a task in chronological order. Caller must be a workspace member.
       parameters:
         - name: page
           in: query
@@ -1872,6 +2278,7 @@ paths:
             type: integer
             default: 1
             minimum: 1
+          description: Page number (1-indexed).
         - name: pageSize
           in: query
           schema:
@@ -1879,6 +2286,7 @@ paths:
             default: 20
             minimum: 1
             maximum: 100
+          description: Number of results per page.
       responses:
         "200":
           description: Paginated list of comments.
@@ -1896,8 +2304,6 @@ paths:
                     $ref: "#/components/schemas/PaginationMeta"
         "401":
           $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
         "500":
@@ -1942,7 +2348,7 @@ paths:
         "500":
           $ref: "#/components/responses/InternalServerError"
 
-  /workspaces/{workspaceId}/tasks/{taskId}/comments/{commentId}:
+  /workspaces/{workspaceId}/projects/{projectId}/tasks/{taskId}/comments/{commentId}:
     parameters:
       - name: workspaceId
         in: path
@@ -1951,13 +2357,20 @@ paths:
           type: string
           format: uuid
         description: UUID v7 of the workspace.
+      - name: projectId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: UUID v7 of the project.
       - name: taskId
         in: path
         required: true
         schema:
           type: string
           format: uuid
-        description: UUID v7 of the task.
+        description: UUID v7 of the task. Must belong to the specified project and workspace.
       - name: commentId
         in: path
         required: true
@@ -1971,8 +2384,8 @@ paths:
       tags: [Comments]
       summary: Edit a comment body. Requires caller to be the comment author, OWNER, or ADMIN.
       description: |
-        Editing a comment sets `editedAt` to the current timestamp. The original
-        `createdAt` is preserved. Only the `body` field may be changed.
+        Editing a comment updates `updatedAt`. The original `createdAt` is preserved.
+        Only the `body` field may be changed.
       requestBody:
         required: true
         content:
@@ -1988,7 +2401,7 @@ paths:
                   example: Reproduced on Chrome 124 and Firefox 125. Root cause confirmed.
       responses:
         "200":
-          description: Comment updated. The response includes the updated `editedAt` timestamp.
+          description: Comment updated.
           content:
             application/json:
               schema:
@@ -2018,6 +2431,201 @@ paths:
       responses:
         "204":
           description: Comment soft-deleted successfully.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  # -------------------------------------------------------------------------
+  # Labels
+  # -------------------------------------------------------------------------
+
+  /workspaces/{workspaceId}/labels:
+    parameters:
+      - name: workspaceId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: UUID v7 of the workspace.
+
+    get:
+      operationId: listLabels
+      tags: [Labels]
+      summary: List all active labels in the workspace. Caller must be a workspace member.
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+            minimum: 1
+          description: Page number (1-indexed).
+        - name: pageSize
+          in: query
+          schema:
+            type: integer
+            default: 50
+            minimum: 1
+            maximum: 100
+          description: Number of results per page.
+      responses:
+        "200":
+          description: Paginated list of labels.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/LabelSummary"
+                  meta:
+                    $ref: "#/components/schemas/PaginationMeta"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+    post:
+      operationId: createLabel
+      tags: [Labels]
+      summary: Create a label in the workspace. Requires OWNER or ADMIN role.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, color]
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                  maxLength: 50
+                  example: bug
+                color:
+                  type: string
+                  description: Hex colour code.
+                  example: "#EF4444"
+      responses:
+        "201":
+          description: Label created successfully.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [label]
+                properties:
+                  label:
+                    $ref: "#/components/schemas/LabelSummary"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: A label with that name already exists in this workspace.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error:
+                  code: LABEL_NAME_CONFLICT
+                  message: A label with that name already exists in this workspace.
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /workspaces/{workspaceId}/labels/{labelId}:
+    parameters:
+      - name: workspaceId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: UUID v7 of the workspace.
+      - name: labelId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: UUID v7 of the label.
+
+    patch:
+      operationId: updateLabel
+      tags: [Labels]
+      summary: Update a label's name or colour. Requires OWNER or ADMIN role.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              minProperties: 1
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                  maxLength: 50
+                  example: critical-bug
+                color:
+                  type: string
+                  description: Hex colour code.
+                  example: "#DC2626"
+      responses:
+        "200":
+          description: Label updated successfully.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [label]
+                properties:
+                  label:
+                    $ref: "#/components/schemas/LabelSummary"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: A label with that name already exists in this workspace.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error:
+                  code: LABEL_NAME_CONFLICT
+                  message: A label with that name already exists in this workspace.
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+    delete:
+      operationId: deleteLabel
+      tags: [Labels]
+      summary: Soft-delete a label and detach it from all tasks. Requires OWNER or ADMIN role.
+      responses:
+        "204":
+          description: Label soft-deleted successfully.
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":

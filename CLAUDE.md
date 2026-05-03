@@ -60,7 +60,7 @@ Shared database, shared schema. Every table that belongs to a workspace has a `w
 REST-first. The backend exposes a versioned REST API mounted at `/api/v1/`. OpenAPI is the authoritative contract, defined in `apps/api/src/openapi.ts` and kept in sync with route implementations.
 
 - WebSocket endpoints are prefixed `/ws/` and added only for features that require real-time server push (e.g. task status updates, presence). They are not a general-purpose alternative to REST.
-- All REST responses follow the existing error shape: `{ error: string, code?: string }`.
+- All REST responses follow the existing error shape: `{ error: { message: string, code?: string, details?: object } }`.
 
 ### 3. Authentication Pattern
 
@@ -124,7 +124,7 @@ All tables use UUID v7 primary keys generated in application code (Node.js `uuid
 - Business logic lives in `apps/api/src/services/`, not in route handlers
 - Database access lives in `apps/api/src/repositories/`, not in services directly
 - All request bodies are validated with Zod schemas defined at the top of each route file
-- Error responses always follow the shape: `{ error: string, code?: string }`
+- Error responses always follow the shape: `{ error: { message: string, code?: string, details?: object } }`
 - Never expose internal error messages to the client — log the full error, return a safe message
 
 ### Frontend (React / Vite)
