@@ -2,6 +2,7 @@
   "name": "flowdesk",
   "private": true,
   "version": "0.0.0",
+  "type": "module",
   "scripts": {
     "dev": "pnpm --parallel --filter './apps/*' dev",
     "build": "pnpm --recursive --filter './apps/*' build",
@@ -9,19 +10,15 @@
     "typecheck": "pnpm --recursive typecheck",
     "lint": "eslint . --max-warnings 0",
     "format": "prettier --write .",
-    "db:generate": "prisma generate",
-    "db:migrate": "prisma migrate dev",
-    "db:migrate:deploy": "prisma migrate deploy",
-    "db:studio": "prisma studio"
+    "db:generate": "pnpm --filter @flowdesk/api db:generate",
+    "db:migrate": "pnpm --filter @flowdesk/api db:migrate",
+    "db:migrate:deploy": "pnpm --filter @flowdesk/api db:migrate:deploy",
+    "db:studio": "pnpm --filter @flowdesk/api db:studio"
   },
   "pnpm": {
     "onlyBuiltDependencies": ["@prisma/engines", "bcrypt", "prisma"]
   },
   "devDependencies": {
-    "@prisma/adapter-pg": "^7.0.0",
-    "@prisma/client": "^7.0.0",
-    "pg": "^8.0.0",
-    "prisma": "^7.0.0",
     "@eslint/js": "^9.0.0",
     "eslint": "^9.0.0",
     "eslint-plugin-react": "^7.37.0",

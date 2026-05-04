@@ -18,7 +18,6 @@
     "db:seed": "tsx prisma/seed.ts"
   },
   "dependencies": {
-    "@flowdesk/shared": "workspace:*",
     "@fastify/cookie": "^9.4.0",
     "@fastify/cors": "^9.0.0",
     "@fastify/jwt": "^8.0.0",
@@ -26,6 +25,7 @@
     "@fastify/rate-limit": "^9.1.0",
     "@fastify/swagger": "^8.15.0",
     "@fastify/swagger-ui": "^4.0.0",
+    "@flowdesk/shared": "workspace:*",
     "@prisma/adapter-pg": "^7.0.0",
     "@prisma/client": "^7.0.0",
     "bcrypt": "^5.1.1",
@@ -38,6 +38,7 @@
     "@types/bcrypt": "^5.0.2",
     "@types/node": "^22.0.0",
     "@types/pg": "^8.0.0",
+    "dotenv": "^17.4.2",
     "pino-pretty": "^11.0.0",
     "prisma": "^7.0.0",
     "tsx": "^4.19.0",
