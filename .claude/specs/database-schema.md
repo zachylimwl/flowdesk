@@ -14,7 +14,7 @@ These rules apply to every entity in this document unless explicitly overridden.
 |---|---|
 | Primary key | `id String @id` — no `@default`. UUID v7 is generated in application code via the `uuidv7` package and passed into every `create` call. |
 | Created timestamp | `createdAt DateTime @default(now())` on all tables. |
-| Updated timestamp | `updatedAt DateTime @updatedAt` on all tables **except** append-only tables (AuditLog) and pure junction tables (WorkspaceMember, ProjectMember, TaskAssignee, TaskLabel). |
+| Updated timestamp | `updatedAt DateTime @updatedAt` on all tables **except** append-only tables (AuditLog) and pure junction tables with no mutable fields (TaskAssignee, TaskLabel). WorkspaceMember and ProjectMember carry a mutable `role` field and do have `updatedAt`. |
 | Soft delete | `deletedAt DateTime?` on entities that support deletion. Omit on AuditLog, and junction tables. All queries against soft-deletable tables must include `where: { deletedAt: null }` unless intentionally querying deleted records. |
 | Tenant column | `workspaceId String` + `workspace Workspace @relation(...)` on every workspace-scoped entity. `workspaceId` is always sourced from the authenticated session — never from a client-supplied value. |
 | Unique partial indexes | Unique constraints on columns belonging to soft-deletable tables (e.g., `slug`, `name`) use partial unique indexes defined in raw SQL migrations (`WHERE deleted_at IS NULL`), not in the Prisma schema DSL. |
@@ -141,6 +141,7 @@ records cascade.
 
 - `slug` is globally unique, immutable after creation (changing it would break all existing URLs).
 - Workspace deletion is hard — the row is removed and all cascades fire.
+- **Service layer requirement:** The workspace deletion service method must check for existing `AuditLog` records before attempting the delete. Because `AuditLog.workspace` is `onDelete: Restrict`, a workspace with audit logs cannot be deleted at the database layer — attempting it will throw a raw FK violation. The service must either purge/archive audit logs first in the same transaction, or return a `409 ConflictError` with a clear message if audit logs are present and purging is not permitted.
 
 ---
 
@@ -237,6 +238,7 @@ A project groups tasks within a workspace. Workspace-scoped. Soft deleted.
 #### Business Rules
 
 - `(workspaceId, slug)` must be unique among non-deleted projects. Enforce as a partial unique index (`WHERE deleted_at IS NULL`).
+- **Service layer requirement:** The database-level `onDelete: Cascade` on Project → Task only fires on hard deletes. Soft-deleting a project must cascade a soft delete to all its non-deleted tasks in the same transaction, which in turn must cascade to subtasks, comments, and attachments per the Task rules above.
 
 ---
 
@@ -313,6 +315,7 @@ A unit of work within a project. Workspace-scoped. Supports sub-tasks via self-r
 - Sub-tasks (`parentId IS NOT NULL`) may not themselves have sub-tasks — maximum nesting depth of 1. Enforced at the service layer.
 - `position` is a Float to support fractional indexing (inserting between two items without renumbering). The application generates new positions in the gap between adjacent items.
 - Soft-deleting a parent task must cascade a soft delete to all its subtasks. Enforced at the service layer in a transaction.
+- **Service layer requirement:** The database-level `onDelete: Cascade` on Task relations (assignees, comments, attachments, labels) only fires on hard deletes, which do not occur in normal application flow. Soft-delete cascades must be implemented explicitly in the task deletion service method: soft-deleting a task must set `deletedAt` on all its subtasks, comments, and attachments in the same transaction.
 
 ---
 
@@ -611,7 +614,7 @@ and unique constraints.
 | Columns | Rationale |
 |---|---|
 | `(workspaceId, userId)` | Covering index on the compound unique constraint; hit on every authenticated workspace request. Leading column is `workspaceId` per ADR-001. |
-| `(userId)` | Reverse lookup — finding all workspaces a user belongs to (workspace switcher). |
+| `(userId, workspaceId)` | Reverse lookup — finding all workspaces a user belongs to (workspace switcher). `userId` leads so the index serves both pure `userId` lookups and combined `userId + workspaceId` lookups. Supersedes a standalone `(userId)` index. |
 
 ### WorkspaceInvite
 
@@ -650,6 +653,7 @@ and unique constraints.
 
 | Columns | Rationale |
 |---|---|
+| `(userId)` | FK traversal for `onDelete: Cascade` when a User is hard-deleted — must locate and delete all assignment rows by `userId` alone. |
 | `(workspaceId, userId)` | Finding all tasks assigned to a user within a workspace (My Tasks view). |
 | `(taskId, userId)` | Covering index on the compound unique constraint. |
 
@@ -705,7 +709,8 @@ and unique constraints.
 
 | Columns | Rationale |
 |---|---|
-| `(workspaceId, createdAt DESC)` | Chronological audit log browsing — the most common query pattern. |
+| `(workspaceId, createdAt)` | Chronological audit log browsing — the most common query pattern. Prisma's DSL does not support index direction modifiers; PostgreSQL B-tree indexes serve both `ASC` and `DESC` sort directions, so this index satisfies `ORDER BY created_at DESC` queries without a separate descending index. |
 | `(workspaceId, actorId)` | Filtering audit log by actor. |
 | `(workspaceId, resourceType, resourceId)` | Fetching the full audit history for a specific resource (e.g., all events for task `abc-123`). |
 | `(resourceType, resourceId)` | Cross-workspace resource lookup — used by internal admin tooling and migration scripts that query audit events for a specific resource without workspace scope. |
+| `(actorId)` | FK traversal for `onDelete: SetNull` when a User is hard-deleted — must locate and null out all AuditLog rows by `actorId` alone. AuditLog is append-only and grows unboundedly, making a full-table scan on this path dangerous without an index. |

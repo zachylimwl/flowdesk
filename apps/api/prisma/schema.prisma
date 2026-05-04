@@ -49,6 +49,14 @@ enum TaskPriority {
   NONE
 }
 
+enum ProjectStatus {
+  PLANNING
+  ACTIVE
+  ON_HOLD
+  COMPLETED
+  CANCELLED
+}
+
 // -----------------------------------------------------------------------------
 // User
 // Global entity — not workspace-scoped.
@@ -130,7 +138,7 @@ model WorkspaceMember {
   user      User      @relation(fields: [userId], references: [id], onDelete: Restrict)
 
   @@unique([workspaceId, userId])
-  @@index([userId])
+  @@index([userId, workspaceId])
 }
 
 // -----------------------------------------------------------------------------
@@ -172,6 +180,7 @@ model Project {
   slug        String
   description String?
   color       String?
+  status      ProjectStatus @default(ACTIVE)
   createdById String
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
@@ -273,6 +282,7 @@ model TaskAssignee {
   assignedBy User      @relation("TaskAssigneeAssignedBy", fields: [assignedById], references: [id], onDelete: Restrict)
 
   @@unique([taskId, userId])
+  @@index([userId])
   @@index([workspaceId, userId])
 }
 
@@ -334,6 +344,7 @@ model Attachment {
   uploadedBy User      @relation(fields: [uploadedById], references: [id], onDelete: Restrict)
 
   @@index([taskId])
+  @@index([commentId])
   @@index([workspaceId, taskId])
   @@index([workspaceId, commentId])
 }
@@ -379,6 +390,7 @@ model TaskLabel {
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@unique([taskId, labelId])
+  @@index([labelId])
   @@index([workspaceId, labelId])
 }
 
@@ -478,6 +490,7 @@ model AuditLog {
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
   actor     User?     @relation(fields: [actorId], references: [id], onDelete: SetNull)
 
+  @@index([actorId])
   @@index([resourceType, resourceId])
   @@index([workspaceId, actorId])
   @@index([workspaceId, resourceType, resourceId])

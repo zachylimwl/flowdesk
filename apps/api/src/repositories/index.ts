@@ -1,0 +1,5 @@
+export { prisma } from './base.repository'
+export { UserRepository } from './user.repository'
+export { WorkspaceRepository } from './workspace.repository'
+export { ProjectRepository } from './project.repository'
+export { TaskRepository } from './task.repository'

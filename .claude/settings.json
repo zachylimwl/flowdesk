@@ -22,7 +22,6 @@
       "Read(.env)",
       "Read(.env.*)",
       "Read(.claude/settings.local.json)",
-      "Read(node_modules/**)",
       "Read(**/node_modules/**)",
       "Read(dist/**)",
       "Read(build/**)",
@@ -39,7 +38,6 @@
       "Read(packages/shared/dist/**)",
       "Read(apps/web/coverage/**)",
       "Read(apps/api/coverage/**)",
-      "Read(**/node_modules/**)",
       "Read(**/*.tsbuildinfo)"
     ]
   }
