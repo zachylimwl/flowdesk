@@ -792,7 +792,7 @@ paths:
           $ref: "#/components/responses/InternalServerError"
 
   /auth/logout:
-    delete:
+    post:
       operationId: logoutUser
       tags: [Authentication]
       summary: Revoke the current refresh token and invalidate the session.
