@@ -5,7 +5,7 @@ export interface SessionPayload {
   email: string
 }
 
-export const SESSION_TTL_SECONDS = 604800
+export const SESSION_TTL_SECONDS = 604800 // 7 days
 export const SESSION_KEY_PREFIX = 'session:'
 
 export function sessionKey(tokenId: string): string {

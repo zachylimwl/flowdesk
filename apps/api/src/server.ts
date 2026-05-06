@@ -1,3 +1,4 @@
+import 'dotenv/config'
 import Fastify from 'fastify'
 import jwtPlugin from './plugins/jwt.plugin'
 import authRoutes from './routes/auth'

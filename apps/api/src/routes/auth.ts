@@ -10,13 +10,14 @@ import {
 const ACCESS_EXPIRES_IN = process.env['JWT_ACCESS_EXPIRES_IN'] ?? '15m'
 
 const authRoutes: FastifyPluginAsync = async (fastify) => {
+  const signFn = (payload: object) => fastify.jwt.sign(payload as any, { expiresIn: ACCESS_EXPIRES_IN })
+
   fastify.post('/register', { config: { rateLimit: { max: 5, timeWindow: '1 minute' } } }, async (request, reply) => {
     const result = RegisterSchema.safeParse(request.body)
     if (!result.success) {
       return reply.code(400).send({ error: 'Validation failed', details: result.error.flatten().fieldErrors })
     }
     try {
-      const signFn = (payload: object) => fastify.jwt.sign(payload as any, { expiresIn: ACCESS_EXPIRES_IN })
       const { tokens, user } = await register(result.data, signFn)
       return reply.code(201).send({ ...tokens, user })
     } catch (error) {
@@ -33,7 +34,6 @@ const authRoutes: FastifyPluginAsync = async (fastify) => {
       return reply.code(400).send({ error: 'Validation failed', details: result.error.flatten().fieldErrors })
     }
     try {
-      const signFn = (payload: object) => fastify.jwt.sign(payload as any, { expiresIn: ACCESS_EXPIRES_IN })
       const { tokens, user } = await login(result.data, signFn)
       return reply.code(200).send({ ...tokens, user })
     } catch (error) {
@@ -50,7 +50,6 @@ const authRoutes: FastifyPluginAsync = async (fastify) => {
       return reply.code(400).send({ error: 'Validation failed', details: result.error.flatten().fieldErrors })
     }
     try {
-      const signFn = (payload: object) => fastify.jwt.sign(payload as any, { expiresIn: ACCESS_EXPIRES_IN })
       const tokens = await refresh(result.data, signFn)
       return reply.code(200).send(tokens)
     } catch (error) {
