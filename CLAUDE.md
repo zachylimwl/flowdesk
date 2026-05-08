@@ -123,7 +123,7 @@ All tables use UUID v7 primary keys generated in application code (Node.js `uuid
 - Routes are registered via the Fastify plugin pattern — each route file exports a Fastify plugin
 - Business logic lives in `apps/api/src/services/`, not in route handlers
 - Database access lives in `apps/api/src/repositories/`, not in services directly
-- All request bodies are validated with Zod schemas defined at the top of each route file
+- All Zod schemas live in `apps/api/src/schemas/`, one file per resource (e.g. `auth.schemas.ts`, `workspace.schemas.ts`) — never defined inline inside a route file
 - Error responses always follow the shape: `{ error: { message: string, code?: string, details?: object } }`
 - Never expose internal error messages to the client — log the full error, return a safe message
 

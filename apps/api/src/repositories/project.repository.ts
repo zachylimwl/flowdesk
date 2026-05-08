@@ -4,9 +4,9 @@ import { ProjectStatus } from '../generated/prisma'
 import { BaseRepository } from './base.repository'
 
 export class ProjectRepository extends BaseRepository {
-  async findById(id: string): Promise<Project | null> {
+  async findById(id: string, workspaceId: string): Promise<Project | null> {
     return this.prisma.project.findFirst({
-      where: { id, deletedAt: null },
+      where: { id, workspaceId, deletedAt: null },
     })
   }
 

@@ -169,7 +169,7 @@ Junction table linking User to Workspace. Carries the user's role within that wo
 
 #### Business Rules
 
-- Compound unique constraint on `(workspaceId, userId)` — a user has exactly one membership record per workspace.
+- Compound unique constraint on `(workspaceId, userId)` — a user has exactly one membership record per workspace. Prisma generates this as `workspaceId_userId` (used in `findUnique({ where: { workspaceId_userId: { ... } } })`). Note: the `@@index([userId, workspaceId])` is a separate non-unique index for reverse lookups and does **not** generate a `userId_workspaceId` unique key.
 - There must always be exactly one member with `role = OWNER` per workspace. This invariant is enforced at the service layer, not the database layer.
 - The `verifyWorkspaceMember` preHandler resolves and decorates `request.member` from this table on every workspace-scoped request. Role is never encoded in the JWT.
 

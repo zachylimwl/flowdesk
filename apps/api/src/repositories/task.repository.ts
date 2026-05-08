@@ -18,12 +18,13 @@ type TaskWithAssignees = Prisma.TaskGetPayload<typeof taskWithAssigneesInclude>
 export class TaskRepository extends BaseRepository {
   async findById(id: string, workspaceId: string): Promise<Task | null> {
     return this.prisma.task.findFirst({
-      where: { id, deletedAt: null, project: { workspaceId } },
+      where: { id, workspaceId, deletedAt: null },
     })
   }
 
   async findByProject(
     projectId: string,
+    workspaceId: string,
     options?: {
       status?: TaskStatus
       assigneeId?: string
@@ -36,6 +37,7 @@ export class TaskRepository extends BaseRepository {
 
     const where: Prisma.TaskWhereInput = {
       projectId,
+      workspaceId,
       deletedAt: null,
       ...(options?.status !== undefined ? { status: options.status } : {}),
       ...(options?.assigneeId !== undefined
@@ -115,7 +117,7 @@ export class TaskRepository extends BaseRepository {
 
   async update(
     id: string,
-    projectId: string,
+    workspaceId: string,
     data: Partial<{
       title: string
       description: string
@@ -129,21 +131,21 @@ export class TaskRepository extends BaseRepository {
     // assigneeId is not a direct Task column — assignment changes go through TaskAssignee at the service layer
     const { assigneeId: _assigneeId, ...taskFields } = data
     return this.prisma.task.update({
-      where: { id, projectId },
+      where: { id, workspaceId },
       data: taskFields,
     })
   }
 
-  async softDelete(id: string, projectId: string): Promise<void> {
+  async softDelete(id: string, workspaceId: string): Promise<void> {
     await this.prisma.task.update({
-      where: { id, projectId },
+      where: { id, workspaceId },
       data: { deletedAt: new Date() },
     })
   }
 
-  async updatePosition(id: string, projectId: string, position: number): Promise<Task> {
+  async updatePosition(id: string, workspaceId: string, position: number): Promise<Task> {
     return this.prisma.task.update({
-      where: { id, projectId },
+      where: { id, workspaceId },
       data: { position },
     })
   }

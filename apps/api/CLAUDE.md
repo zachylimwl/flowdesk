@@ -69,16 +69,24 @@ Register all route plugins in `src/app.ts` with a versioned prefix:
 
 ### Request Validation
 
-Define all Zod schemas at the top of the route file, above the plugin. Never inline schema
-definitions inside the handler. Use `fastify-type-provider-zod` so that `request.body`,
-`request.params`, and `request.query` are fully typed from the schema.
+Zod schemas live in `src/schemas/`, one file per resource (e.g. `workspace.schemas.ts`,
+`auth.schemas.ts`). Import them into the route file — never define schemas inline inside a
+route file or handler. Export an inferred `type` alongside each schema.
 
 ```ts
-const CreateWorkspaceSchema = z.object({
+// src/schemas/workspace.schemas.ts
+import { z } from 'zod'
+
+export const CreateWorkspaceSchema = z.object({
   name: z.string().min(1).max(100).trim(),
   slug: z.string().regex(/^[a-z0-9-]+$/).min(2).max(50),
 })
+
+export type CreateWorkspaceInput = z.infer<typeof CreateWorkspaceSchema>
 ```
+
+The schema file is the input contract for the resource. The route file is responsible for
+handling HTTP — keeping them separate reflects that these are different concerns.
 
 ---
 
