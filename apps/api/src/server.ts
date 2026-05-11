@@ -3,6 +3,7 @@ import Fastify from 'fastify'
 import jwtPlugin from './plugins/jwt.plugin'
 import authRoutes from './routes/auth'
 import { workspaceRoutes } from './routes/workspace'
+import { projectRoutes } from './routes/projects'
 import { connect as connectRedis, disconnect as disconnectRedis } from './lib/redis'
 
 const server = Fastify({
@@ -27,6 +28,7 @@ server.get('/api/health', async () => {
 
 await server.register(authRoutes, { prefix: '/api/v1/auth' })
 await server.register(workspaceRoutes, { prefix: '/api/v1' })
+await server.register(projectRoutes, { prefix: '/api/v1' })
 
 server.addHook('onClose', async () => {
   await disconnectRedis()
